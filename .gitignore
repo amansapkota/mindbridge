@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+.env.local
+
+# SQLite database — regenerate with `npm run seed`
+server/data/

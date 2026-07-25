@@ -1,0 +1,17 @@
+{
+  "name": "mindbridge-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --no-warnings index.js",
+    "start": "node --no-warnings index.js",
+    "seed": "node --no-warnings seed.js",
+    "credentials": "node --no-warnings credentials.js",
+    "try-prompt": "node --no-warnings try-prompt.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2"
+  }
+}
