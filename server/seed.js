@@ -3,12 +3,13 @@
  * dashboard has something to show immediately. Safe to re-run — it skips
  * usernames that already exist.
  */
-import { db, loadSnippetPool, ensureDefaultDoctor } from "./db.js";
+import { db, withTransaction, migrate, loadSnippetPool, ensureDefaultDoctor, closePool } from "./db.js";
 import { SNIPPETS, generateDataset } from "./generator.js";
 import { setPatientPassword } from "./auth.js";
 
-loadSnippetPool(SNIPPETS);
-const doctor = ensureDefaultDoctor();
+await migrate();
+await loadSnippetPool(SNIPPETS);
+const doctor = await ensureDefaultDoctor();
 
 const DEMO = [
   {
@@ -42,22 +43,10 @@ const DEMO = [
 ];
 
 for (const d of DEMO) {
-  const existing = db.prepare("SELECT id FROM patients WHERE username = ?").get(d.username);
+  const existing = await db.prepare("SELECT id FROM patients WHERE username = ?").get(d.username);
   if (existing) {
     console.log(`skip  ${d.username} (already exists)`);
     continue;
-  }
-
-  const info = db
-    .prepare(
-      `INSERT INTO patients (doctor_id, name, email, age, username, description, health_score, has_partner)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    )
-    .run(doctor.id, d.name, d.email, d.age, d.username, d.description, d.health_score, d.partner_name ? 1 : 0);
-
-  const patientId = Number(info.lastInsertRowid);
-  if (d.partner_name) {
-    db.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(patientId, d.partner_name);
   }
 
   const dataset = generateDataset({
@@ -66,32 +55,45 @@ for (const d of DEMO) {
     hasPartner: Boolean(d.partner_name),
   });
 
-  const insertPoint = db.prepare(`
-    INSERT INTO simulated_data_points
-      (patient_id, date, sleep_hours, sleep_quality, resting_hr, hrv, breathing_rate,
-       mood_score, anxiety_score, energy_score)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  for (const p of dataset.points) {
-    insertPoint.run(patientId, p.date, p.sleep_hours, p.sleep_quality, p.resting_hr, p.hrv,
-      p.breathing_rate, p.mood_score, p.anxiety_score, p.energy_score);
-  }
+  const patientId = await withTransaction(async (tx) => {
+    const info = await tx
+      .prepare(
+        `INSERT INTO patients (doctor_id, name, email, age, username, description, health_score, has_partner)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(doctor.id, d.name, d.email, d.age, d.username, d.description, d.health_score, d.partner_name ? 1 : 0);
 
-  const insertMood = db.prepare(
-    "INSERT INTO mood_logs (patient_id, author, date, mood_rating, tags) VALUES (?, ?, ?, ?, ?)"
-  );
-  const insertJournal = db.prepare(
-    "INSERT INTO journal_entries (patient_id, author, date, snippet_id, text) VALUES (?, ?, ?, ?, ?)"
-  );
-  for (const m of dataset.patient.moodLogs) insertMood.run(patientId, "patient", m.date, m.mood_rating, JSON.stringify(m.tags));
-  for (const j of dataset.patient.journals) insertJournal.run(patientId, "patient", j.date, j.snippet_id, j.text);
-  if (dataset.partner) {
-    for (const m of dataset.partner.moodLogs) insertMood.run(patientId, "partner", m.date, m.mood_rating, JSON.stringify(m.tags));
-    for (const j of dataset.partner.journals) insertJournal.run(patientId, "partner", j.date, j.snippet_id, j.text);
-  }
+    const id = Number(info.lastInsertRowid);
+    if (d.partner_name) {
+      await tx.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(id, d.partner_name);
+    }
 
-  db.prepare("UPDATE patients SET compliance_score = ? WHERE id = ?").run(dataset.compliance.score, patientId);
+    await tx.insertMany(
+      `INSERT INTO simulated_data_points
+         (patient_id, date, sleep_hours, sleep_quality, resting_hr, hrv, breathing_rate,
+          mood_score, anxiety_score, energy_score)
+       VALUES ?`,
+      dataset.points.map((p) => [
+        id, p.date, p.sleep_hours, p.sleep_quality, p.resting_hr, p.hrv,
+        p.breathing_rate, p.mood_score, p.anxiety_score, p.energy_score,
+      ])
+    );
 
-  const tempPassword = setPatientPassword(patientId, null, true);
+    const moods = dataset.patient.moodLogs.map((m) => [id, "patient", m.date, m.mood_rating, JSON.stringify(m.tags)]);
+    const journals = dataset.patient.journals.map((j) => [id, "patient", j.date, j.snippet_id, j.text]);
+    if (dataset.partner) {
+      for (const m of dataset.partner.moodLogs) moods.push([id, "partner", m.date, m.mood_rating, JSON.stringify(m.tags)]);
+      for (const j of dataset.partner.journals) journals.push([id, "partner", j.date, j.snippet_id, j.text]);
+    }
+
+    await tx.insertMany("INSERT INTO mood_logs (patient_id, author, date, mood_rating, tags) VALUES ?", moods);
+    await tx.insertMany("INSERT INTO journal_entries (patient_id, author, date, snippet_id, text) VALUES ?", journals);
+
+    await tx.prepare("UPDATE patients SET compliance_score = ? WHERE id = ?").run(dataset.compliance.score, id);
+    return id;
+  });
+
+  const tempPassword = await setPatientPassword(patientId, null, true);
   console.log(
     `created ${d.username.padEnd(10)} health ${d.health_score}  compliance ${String(dataset.compliance.score).padStart(3)}%  password ${tempPassword}`
   );
@@ -100,3 +102,5 @@ for (const d of DEMO) {
 console.log("\nClinician:  drsmith / mindbridge");
 console.log("Patients:   sign in with the username and password printed above.");
 console.log("Run `npm run credentials` at any time to see who has a login, or to reset one.");
+
+await closePool();

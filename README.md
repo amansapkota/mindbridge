@@ -1,22 +1,61 @@
 # Mindbridge — prototype
 
 AI-assisted between-session wellbeing tracking for psychiatrists and therapists.
-Doctor-only, with simulated patient data. Built to validate one loop:
+Clinician-led. Built to validate one loop:
 
-**create patient → generate fake data → send to AI → show report.**
+**patient logs check-ins → send to AI → show report.**
+
+## Where a patient's data comes from
+
+A new patient starts **empty**. Their record fills up from two real sources:
+
+- **the patient themselves**, signing in to the portal to log a daily mood check-in and
+  write journal entries (`source = 'self-reported'`)
+- **JSON import**, for data produced by another system (`source = 'imported'`)
+
+There is also a **simulated data generator**, which is what the original prototype used
+to demonstrate the report loop before any real data existed. It is still there, but it
+is no longer wired to patient creation — it only runs when a clinician explicitly clicks
+**"Regenerate data"**, and everything it writes is tagged `source = 'generated'` so it
+stays distinguishable from the real thing. Its journal text is drawn from a fixed pool of
+48 hand-written snippets in `snippets.json`, so it repeats itself over a 30-day window;
+that is expected, and it is a good reminder that those rows are not evidence about a
+patient.
+
+If you want to know whether a given row is real, ask the database:
+
+```sql
+SELECT source, COUNT(*) FROM mb_journal_entries WHERE patient_id = ? GROUP BY source;
+```
 
 ## Run it
 
-Two terminals:
+Configuration first — the server needs a MySQL database and, for live reports, an
+API key:
+
+```bash
+cd server && cp .env.example .env   # then fill it in
+```
+
+Then two terminals:
 
 ```bash
 cd server && npm install && npm start     # http://localhost:4100
 cd web    && npm install && npm run dev   # http://localhost:5180
 ```
 
+The server creates its own tables on boot and prints what it connected to:
+
+```
+Mindbridge API on http://localhost:4100
+DB: u1_nikas@110.34.1.161 (tables prefixed "mb_")
+AI: nvidia/nemotron-3-super-120b-a12b:free via https://openrouter.ai/api/v1
+```
+
 Sign in as **`drsmith` / `mindbridge`**.
 
-Optional demo patients across the severity range:
+Optional demo patients across the severity range — note that these are **generated**,
+not real, and exist so there is something to show the report loop against:
 
 ```bash
 cd server && npm run seed
@@ -94,17 +133,31 @@ generated and self-reported data, and compliance is recalculated after every imp
 
 ## AI configuration
 
-Report generation calls an OpenAI-compatible chat-completions endpoint:
+Report generation calls an OpenAI-compatible chat-completions endpoint. It currently
+points at OpenRouter:
 
 ```bash
-MINDBRIDGE_API_KEY=sk-...              # or OPENAI_API_KEY
-MINDBRIDGE_MODEL=gpt-4o-mini           # default
-MINDBRIDGE_BASE_URL=https://api.openai.com/v1
+MINDBRIDGE_API_KEY=sk-or-v1-...        # or OPENAI_API_KEY
+MINDBRIDGE_BASE_URL=https://openrouter.ai/api/v1
+MINDBRIDGE_MODEL=nvidia/nemotron-3-super-120b-a12b:free
+MINDBRIDGE_FALLBACK_MODELS=openrouter/free,openai/gpt-oss-20b:free
+MINDBRIDGE_MODEL_TIMEOUT_MS=90000
 ```
 
-Because it is OpenAI-compatible, pointing `MINDBRIDGE_BASE_URL` at OpenRouter or a
-Gemini compatibility endpoint works without code changes — there is deliberately no
-model-swap abstraction layer beyond that.
+Because it is OpenAI-compatible, pointing `MINDBRIDGE_BASE_URL` at OpenAI or a Gemini
+compatibility endpoint works without code changes — there is deliberately no model-swap
+abstraction layer beyond that.
+
+`MINDBRIDGE_FALLBACK_MODELS` is the one concession to running on free-tier capacity.
+Those endpoints return 429 from the upstream provider often enough that a single model
+would drop the clinician into the offline path mid-session for no good reason, so each
+candidate is tried in order with the same prompt and whichever answers is recorded as
+the report's `model_used`. `MINDBRIDGE_MODEL_TIMEOUT_MS` caps each attempt, because a
+queued free endpoint can otherwise sit open for minutes.
+
+Free-tier latency is genuinely variable — the same call has returned in 1 second and in
+100. Expect report generation to take anywhere from a few seconds to a minute or two.
+A paid model on the same key removes that variance.
 
 **With no key set**, reports come from a local analysis pass instead (trends, Pearson
 correlations, worst-burden days, partner mismatches, compliance gaps). It is derived
@@ -130,7 +183,9 @@ Do this before trusting the dashboard.
 
 ```
 server/
-  db.js            SQLite schema — PRD section 7, plus later columns via ensureColumn
+  env.js           loads server/.env regardless of the working directory
+  db.js            MySQL pool, table prefixing, schema — PRD section 7, plus later
+                   columns via ensureColumn
   generator.js     the simulated data engine (the interesting part)
   snippets.json    hand-written journal pool, bucketed by severity/theme/perspective
   ai.js            prompt, provider call, keyword guardrail, offline fallback
@@ -146,11 +201,33 @@ web/
 ```
 
 Schema changes after the initial build are applied by `ensureColumn` in `db.js` — it
-checks `pragma table_info` first, since SQLite has no `ADD COLUMN IF NOT EXISTS`. An
-existing database picks them up on next boot; no migration step to run.
+checks `information_schema.columns` first, since MySQL has no `ADD COLUMN IF NOT
+EXISTS`. An existing database picks them up on next boot; no migration step to run.
 
-Storage is `node:sqlite` (built into Node 22+), so there are no native dependencies and
-no database server to run. The file lives at `server/data/mindbridge.db`.
+### Storage
+
+MySQL 8 via `mysql2`. `db.js` creates the schema on boot, so there is nothing to run by
+hand. Two things about it are worth knowing:
+
+**Every table is prefixed** — `MINDBRIDGE_TABLE_PREFIX`, default `mb_`. The database
+this currently points at is shared with another application whose tables include
+`doctors`, `patients`, `journal_entries` and `import_batches`: same names, entirely
+different columns. The prefix is what keeps the two apart, and it is applied centrally
+in `db.js` rather than being written into every query, so the SQL still reads as
+`FROM patients`. **Do not blank it out against a shared database.**
+
+**The statement API is async.** `db.prepare(sql).get/.all/.run` keeps the shape the old
+`node:sqlite` code used, but all three now return promises — MySQL is a network round
+trip and there is no synchronous equivalent to fake. Transactions are explicit
+(`withTransaction`) because a pool hands out a different connection per statement, so a
+bare `BEGIN` would land on an unrelated session. Bulk writes go through `insertMany`:
+generating one patient writes ~150 rows, which against a remote server is the difference
+between one round trip and a hundred.
+
+Dates come back as strings (`dateStrings: true`) rather than JS `Date` objects, so the
+API returns exactly what it did before, and timestamp defaults are `UTC_TIMESTAMP()`
+rather than `CURRENT_TIMESTAMP` so they stay UTC regardless of the server's session time
+zone — the client appends a `Z` when parsing them.
 
 ### The data generator
 
@@ -210,4 +287,8 @@ journal, own charts, nothing else.
 - Reports snapshot the data they analysed, so a saved report stays meaningful after
   "Regenerate data" replaces the live dataset. This makes the `reports` table grow
   faster than it otherwise would.
-"# mindbridge" 
+- The database credentials in `.env` are a shared hosting account whose MySQL is open to
+  `%` (any host). That is the hosting panel's setting, not the app's, but it means the
+  password is the only thing in front of the data — worth narrowing to a known IP.
+- Report latency on free-tier models is unpredictable (seconds to a minute or two) and
+  the UI has no progress indication beyond its loading state. 

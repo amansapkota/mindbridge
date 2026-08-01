@@ -1,4 +1,4 @@
-import { db } from "./db.js";
+import { db, withTransaction } from "./db.js";
 import { computeCompliance } from "./generator.js";
 import { setPatientPassword } from "./auth.js";
 
@@ -208,18 +208,18 @@ function normaliseEnvelope(raw) {
   throw err;
 }
 
-function resolvePatient(doctorId, match, demographics) {
+async function resolvePatient(doctorId, match, demographics) {
   const username = match?.username ?? demographics?.username;
   const email = match?.email ?? demographics?.email;
 
   if (match?.patientId !== undefined) {
-    return db.prepare("SELECT * FROM patients WHERE id = ? AND doctor_id = ?").get(Number(match.patientId), doctorId) || null;
+    return (await db.prepare("SELECT * FROM patients WHERE id = ? AND doctor_id = ?").get(Number(match.patientId), doctorId)) || null;
   }
   if (username) {
-    return db.prepare("SELECT * FROM patients WHERE username = ? AND doctor_id = ?").get(username, doctorId) || null;
+    return (await db.prepare("SELECT * FROM patients WHERE username = ? AND doctor_id = ?").get(username, doctorId)) || null;
   }
   if (email) {
-    return db.prepare("SELECT * FROM patients WHERE email = ? AND doctor_id = ?").get(email, doctorId) || null;
+    return (await db.prepare("SELECT * FROM patients WHERE email = ? AND doctor_id = ?").get(email, doctorId)) || null;
   }
   return null;
 }
@@ -227,7 +227,7 @@ function resolvePatient(doctorId, match, demographics) {
 /* ------------------------------------------------------------------ *
  * Phase 1 — dry run
  * ------------------------------------------------------------------ */
-export function analyzeImport(raw, doctor, options = {}) {
+export async function analyzeImport(raw, doctor, options = {}) {
   const { createMissingPatients = false } = options;
   const { format, patients } = normaliseEnvelope(raw);
 
@@ -242,7 +242,7 @@ export function analyzeImport(raw, doctor, options = {}) {
     throw err;
   }
 
-  const bundles = patients.map((rawBundle, index) => {
+  const analyseBundle = async (rawBundle, index) => {
     const errors = [];
     const warnings = [];
     const path = `patients[${index}]`;
@@ -289,7 +289,7 @@ export function analyzeImport(raw, doctor, options = {}) {
       journals: Math.max(0, rawCount("journals") - journals.length),
     };
 
-    const existing = errors.length ? null : resolvePatient(doctor.id, rawBundle.match, demographics);
+    const existing = errors.length ? null : await resolvePatient(doctor.id, rawBundle.match, demographics);
 
     let action = "error";
     let label = demographics?.name || `Entry ${index + 1}`;
@@ -309,7 +309,7 @@ export function analyzeImport(raw, doctor, options = {}) {
           path: `${path}.demographics`,
           message: "Creating a patient needs at least demographics.name and demographics.username",
         });
-      } else if (db.prepare("SELECT id FROM patients WHERE username = ?").get(demographics.username)) {
+      } else if (await db.prepare("SELECT id FROM patients WHERE username = ?").get(demographics.username)) {
         errors.push({
           path: `${path}.demographics.username`,
           message: `Username “${demographics.username}” is already taken by another patient`,
@@ -338,7 +338,15 @@ export function analyzeImport(raw, doctor, options = {}) {
         : null,
       parsed: { demographics, dataPoints, moodLogs, journals },
     };
-  });
+  };
+
+  // Sequential rather than Promise.all: each bundle hits the database to
+  // resolve its patient, and a 200-entry file would otherwise open 200
+  // concurrent queries against a pool of ten.
+  const bundles = [];
+  for (const [index, rawBundle] of patients.entries()) {
+    bundles.push(await analyseBundle(rawBundle, index));
+  }
 
   const totals = { patients: bundles.length, toCreate: 0, toMatch: 0, accepted: {}, rejected: {}, errors: 0, warnings: 0 };
   for (const s of SECTIONS) {
@@ -368,8 +376,8 @@ export const publicPlan = (plan) => ({
 /* ------------------------------------------------------------------ *
  * Phase 2 — commit
  * ------------------------------------------------------------------ */
-export function commitImport(raw, doctor, options = {}, filename = null) {
-  const plan = analyzeImport(raw, doctor, options);
+export async function commitImport(raw, doctor, options = {}, filename = null) {
+  const plan = await analyzeImport(raw, doctor, options);
   if (!plan.importable) {
     const err = new Error("Nothing to import — every entry has blocking errors");
     err.status = 422;
@@ -387,9 +395,8 @@ export function commitImport(raw, doctor, options = {}, filename = null) {
     perSection: { dataPoints: 0, moodLogs: 0, journals: 0 },
   };
 
-  db.exec("BEGIN");
-  try {
-    const batchInfo = db
+  await withTransaction(async (tx) => {
+    const batchInfo = await tx
       .prepare("INSERT INTO import_batches (doctor_id, filename, status) VALUES (?, ?, 'committed')")
       .run(doctor.id, filename);
     const batchId = Number(batchInfo.lastInsertRowid);
@@ -402,7 +409,7 @@ export function commitImport(raw, doctor, options = {}, filename = null) {
       let patientId = bundle.patientId;
 
       if (bundle.action === "create") {
-        const info = db
+        const info = await tx
           .prepare(
             `INSERT INTO patients (doctor_id, name, email, age, username, description, health_score, has_partner)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
@@ -421,11 +428,11 @@ export function commitImport(raw, doctor, options = {}, filename = null) {
         result.patientsCreated++;
 
         if (demographics.partner_name) {
-          db.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(patientId, demographics.partner_name);
+          await tx.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(patientId, demographics.partner_name);
         }
 
         // Imported patients get a login straight away, same as any other.
-        const tempPassword = setPatientPassword(patientId, null, true);
+        const tempPassword = await setPatientPassword(patientId, null, true, tx);
         result.createdCredentials.push({
           patientId,
           name: demographics.name,
@@ -451,107 +458,104 @@ export function commitImport(raw, doctor, options = {}, filename = null) {
           }
           if (fields.length) {
             params.push(patientId);
-            db.prepare(`UPDATE patients SET ${fields.join(", ")} WHERE id = ?`).run(...params);
+            await tx.prepare(`UPDATE patients SET ${fields.join(", ")} WHERE id = ?`).run(...params);
           }
           if (demographics.partner_name) {
-            const existingPartner = db.prepare("SELECT id FROM partners WHERE patient_id = ?").get(patientId);
+            const existingPartner = await tx.prepare("SELECT id FROM partners WHERE patient_id = ?").get(patientId);
             if (existingPartner) {
-              db.prepare("UPDATE partners SET name = ? WHERE id = ?").run(demographics.partner_name, existingPartner.id);
+              await tx.prepare("UPDATE partners SET name = ? WHERE id = ?").run(demographics.partner_name, existingPartner.id);
             } else {
-              db.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(patientId, demographics.partner_name);
+              await tx.prepare("INSERT INTO partners (patient_id, name) VALUES (?, ?)").run(patientId, demographics.partner_name);
             }
-            db.prepare("UPDATE patients SET has_partner = 1 WHERE id = ?").run(patientId);
+            await tx.prepare("UPDATE patients SET has_partner = 1 WHERE id = ?").run(patientId);
           }
         }
       }
 
       // Re-importing the same day replaces it rather than stacking duplicates,
       // so a corrected file can simply be uploaded again.
-      const delPoint = db.prepare("DELETE FROM simulated_data_points WHERE patient_id = ? AND date = ?");
-      const insPoint = db.prepare(`
-        INSERT INTO simulated_data_points
-          (patient_id, date, sleep_hours, sleep_quality, resting_hr, hrv, breathing_rate,
-           mood_score, anxiety_score, energy_score, source, import_batch_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'imported', ?)`);
-
-      for (const p of dataPoints) {
-        delPoint.run(patientId, p.date);
-        insPoint.run(
+      const delPoint = tx.prepare("DELETE FROM simulated_data_points WHERE patient_id = ? AND date = ?");
+      for (const p of dataPoints) await delPoint.run(patientId, p.date);
+      await tx.insertMany(
+        `INSERT INTO simulated_data_points
+           (patient_id, date, sleep_hours, sleep_quality, resting_hr, hrv, breathing_rate,
+            mood_score, anxiety_score, energy_score, source, import_batch_id)
+         VALUES ?`,
+        dataPoints.map((p) => [
           patientId, p.date,
           p.sleep_hours ?? null, p.sleep_quality ?? null, p.resting_hr ?? null, p.hrv ?? null,
           p.breathing_rate ?? null, p.mood_score ?? null, p.anxiety_score ?? null, p.energy_score ?? null,
-          batchId
-        );
-        result.perSection.dataPoints++;
-      }
-
-      const delMood = db.prepare("DELETE FROM mood_logs WHERE patient_id = ? AND author = ? AND date = ?");
-      const insMood = db.prepare(
-        "INSERT INTO mood_logs (patient_id, author, date, mood_rating, tags, source, import_batch_id) VALUES (?, ?, ?, ?, ?, 'imported', ?)"
+          "imported", batchId,
+        ])
       );
-      for (const m of moodLogs) {
-        delMood.run(patientId, m.author, m.date);
-        insMood.run(patientId, m.author, m.date, m.mood_rating, JSON.stringify(m.tags), batchId);
-        result.perSection.moodLogs++;
-      }
+      result.perSection.dataPoints += dataPoints.length;
+
+      const delMood = tx.prepare("DELETE FROM mood_logs WHERE patient_id = ? AND author = ? AND date = ?");
+      for (const m of moodLogs) await delMood.run(patientId, m.author, m.date);
+      await tx.insertMany(
+        "INSERT INTO mood_logs (patient_id, author, date, mood_rating, tags, source, import_batch_id) VALUES ?",
+        moodLogs.map((m) => [patientId, m.author, m.date, m.mood_rating, JSON.stringify(m.tags), "imported", batchId])
+      );
+      result.perSection.moodLogs += moodLogs.length;
 
       // Journals have no natural key — a patient may legitimately write twice in
       // one day — so instead of replacing by date, skip rows that are byte-for-byte
       // identical. Distinct same-day entries still import; re-uploading the same
       // file doesn't stack copies.
-      const findJournal = db.prepare(
+      const findJournal = tx.prepare(
         "SELECT id FROM journal_entries WHERE patient_id = ? AND author = ? AND date = ? AND text = ? LIMIT 1"
       );
-      const insJournal = db.prepare(
-        "INSERT INTO journal_entries (patient_id, author, date, snippet_id, text, source, import_batch_id) VALUES (?, ?, ?, NULL, ?, 'imported', ?)"
-      );
+      const freshJournals = [];
       for (const j of journals) {
-        if (findJournal.get(patientId, j.author, j.date, j.text)) {
+        if (await findJournal.get(patientId, j.author, j.date, j.text)) {
           result.duplicatesSkipped++;
           continue;
         }
-        insJournal.run(patientId, j.author, j.date, j.text, batchId);
-        result.perSection.journals++;
+        freshJournals.push([patientId, j.author, j.date, null, j.text, "imported", batchId]);
       }
+      await tx.insertMany(
+        "INSERT INTO journal_entries (patient_id, author, date, snippet_id, text, source, import_batch_id) VALUES ?",
+        freshJournals
+      );
+      result.perSection.journals += freshJournals.length;
 
       // Compliance is derived from coverage, so it has to be recalculated.
-      const points = db.prepare("SELECT date FROM simulated_data_points WHERE patient_id = ? ORDER BY date").all(patientId);
-      const patientMoods = db
+      const points = await tx
+        .prepare("SELECT date FROM simulated_data_points WHERE patient_id = ? ORDER BY date")
+        .all(patientId);
+      const patientMoods = await tx
         .prepare("SELECT date FROM mood_logs WHERE patient_id = ? AND author = 'patient'")
         .all(patientId);
       if (points.length) {
         const compliance = computeCompliance(points, patientMoods);
-        db.prepare("UPDATE patients SET compliance_score = ? WHERE id = ?").run(compliance.score, patientId);
+        await tx.prepare("UPDATE patients SET compliance_score = ? WHERE id = ?").run(compliance.score, patientId);
       }
     }
 
     result.recordsImported = SECTIONS.reduce((n, s) => n + result.perSection[s], 0);
     result.recordsSkipped = SECTIONS.reduce((n, s) => n + plan.totals.rejected[s], 0);
 
-    db.prepare(
-      `UPDATE import_batches SET patients_created = ?, patients_matched = ?, records_imported = ?,
-              records_skipped = ?, summary = ? WHERE id = ?`
-    ).run(
-      result.patientsCreated,
-      result.patientsMatched,
-      result.recordsImported,
-      result.recordsSkipped,
-      JSON.stringify({ perSection: result.perSection, rejected: plan.totals.rejected }),
-      batchId
-    );
-
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+    await tx
+      .prepare(
+        `UPDATE import_batches SET patients_created = ?, patients_matched = ?, records_imported = ?,
+                records_skipped = ?, summary = ? WHERE id = ?`
+      )
+      .run(
+        result.patientsCreated,
+        result.patientsMatched,
+        result.recordsImported,
+        result.recordsSkipped,
+        JSON.stringify({ perSection: result.perSection, rejected: plan.totals.rejected }),
+        batchId
+      );
+  });
 
   return { ...result, plan: publicPlan(plan) };
 }
 
 /** Remove everything a batch wrote. Patients it created are left in place. */
-export function revertImport(batchId, doctor) {
-  const batch = db.prepare("SELECT * FROM import_batches WHERE id = ? AND doctor_id = ?").get(batchId, doctor.id);
+export async function revertImport(batchId, doctor) {
+  const batch = await db.prepare("SELECT * FROM import_batches WHERE id = ? AND doctor_id = ?").get(batchId, doctor.id);
   if (!batch) {
     const err = new Error("Import batch not found");
     err.status = 404;
@@ -563,20 +567,15 @@ export function revertImport(batchId, doctor) {
     throw err;
   }
 
-  db.exec("BEGIN");
-  try {
+  return await withTransaction(async (tx) => {
     let deleted = 0;
-    for (const table of ["simulated_data_points", "mood_logs", "journal_entries"]) {
-      const info = db.prepare(`DELETE FROM ${table} WHERE import_batch_id = ?`).run(batchId);
+    for (const name of ["simulated_data_points", "mood_logs", "journal_entries"]) {
+      const info = await tx.prepare(`DELETE FROM ${name} WHERE import_batch_id = ?`).run(batchId);
       deleted += Number(info.changes);
     }
-    db.prepare("UPDATE import_batches SET status = 'reverted' WHERE id = ?").run(batchId);
-    db.exec("COMMIT");
+    await tx.prepare("UPDATE import_batches SET status = 'reverted' WHERE id = ?").run(batchId);
     return { deleted };
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+  });
 }
 
 /** A valid, fully-populated example doctors can download as a starting point. */

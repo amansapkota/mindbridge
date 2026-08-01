@@ -3,5 +3,6 @@ dist/
 .env
 .env.local
 
-# SQLite database — regenerate with `npm run seed`
+# Superseded by MySQL. Left ignored so the old local database file, if you still
+# have one, stays out of the repo.
 server/data/

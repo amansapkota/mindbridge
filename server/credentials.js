@@ -9,7 +9,7 @@
  * Passwords are printed once here and stored as a scrypt hash — there is no way
  * to read them back afterwards, by design. Re-run with a username to reissue.
  */
-import { db } from "./db.js";
+import { db, migrate, closePool } from "./db.js";
 import { setPatientPassword } from "./auth.js";
 
 const args = process.argv.slice(2);
@@ -17,12 +17,15 @@ const issue = args.includes("--issue");
 const resetAll = args.includes("--reset-all");
 const usernames = args.filter((a) => !a.startsWith("--"));
 
-const patients = db
+await migrate();
+
+const patients = await db
   .prepare("SELECT id, name, username, password_hash, must_change_password, last_login_at FROM patients ORDER BY id")
   .all();
 
 if (patients.length === 0) {
   console.log("No patients yet. Create one in the app, or run `npm run seed`.");
+  await closePool();
   process.exit(0);
 }
 
@@ -32,7 +35,7 @@ for (const p of patients) {
   const targeted = usernames.includes(p.username);
   const needsOne = issue && !p.password_hash;
   if (targeted || needsOne || resetAll) {
-    issued.push({ ...p, tempPassword: setPatientPassword(p.id, null, true) });
+    issued.push({ ...p, tempPassword: await setPatientPassword(p.id, null, true) });
   }
 }
 
@@ -65,3 +68,5 @@ if (!issue && !resetAll && !usernames.length) {
 } else {
   console.log(`Issued ${issued.length} password${issued.length === 1 ? "" : "s"}. Give these to the patients directly.`);
 }
+
+await closePool();

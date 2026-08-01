@@ -20,6 +20,13 @@ const sessions = new Map(); // token -> { role, doctorId?, patientId?, expiresAt
 
 const DEFAULT_PASSWORD = process.env.MINDBRIDGE_DOCTOR_PASSWORD || "mindbridge";
 
+/**
+ * Express 4 does not await handlers, so a rejected promise from an async
+ * handler or middleware would go unhandled and the request would hang. Every
+ * async one below is wrapped so the rejection reaches the error middleware.
+ */
+const guard = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 export function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const derived = crypto.scryptSync(password, salt, 64).toString("hex");
   return `${salt}:${derived}`;
@@ -68,50 +75,55 @@ function readToken(req) {
   return header?.startsWith("Bearer ") ? header.slice(7) : null;
 }
 
-export function attachAuth(app) {
+export async function attachAuth(app) {
   // Give the seeded doctor a usable password on first boot.
-  const doctor = db.prepare("SELECT * FROM doctors WHERE username = ?").get("drsmith");
+  const doctor = await db.prepare("SELECT * FROM doctors WHERE username = ?").get("drsmith");
   if (doctor && !doctor.password_hash) {
-    db.prepare("UPDATE doctors SET password_hash = ? WHERE id = ?").run(hashPassword(DEFAULT_PASSWORD), doctor.id);
+    await db
+      .prepare("UPDATE doctors SET password_hash = ? WHERE id = ?")
+      .run(hashPassword(DEFAULT_PASSWORD), doctor.id);
     console.log(`Seeded doctor login — username: drsmith  password: ${DEFAULT_PASSWORD}`);
   }
 
-  app.post("/api/auth/login", (req, res) => {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
+  app.post(
+    "/api/auth/login",
+    guard(async (req, res) => {
+      const { username, password } = req.body || {};
+      if (!username || !password) return res.status(400).json({ error: "Username and password are required" });
 
-    const name = String(username).trim();
+      const name = String(username).trim();
 
-    // Doctors first, then patients. Usernames are unique within each table; a
-    // collision across tables resolves to the doctor, which is the safer default.
-    const doctorRow = db.prepare("SELECT * FROM doctors WHERE username = ?").get(name);
-    if (doctorRow && verifyPassword(String(password), doctorRow.password_hash)) {
-      const token = issueToken({ role: "doctor", doctorId: doctorRow.id });
-      return res.json({
-        token,
-        role: "doctor",
-        doctor: { id: doctorRow.id, name: doctorRow.name, email: doctorRow.email, username: doctorRow.username },
-      });
-    }
+      // Doctors first, then patients. Usernames are unique within each table; a
+      // collision across tables resolves to the doctor, which is the safer default.
+      const doctorRow = await db.prepare("SELECT * FROM doctors WHERE username = ?").get(name);
+      if (doctorRow && verifyPassword(String(password), doctorRow.password_hash)) {
+        const token = issueToken({ role: "doctor", doctorId: doctorRow.id });
+        return res.json({
+          token,
+          role: "doctor",
+          doctor: { id: doctorRow.id, name: doctorRow.name, email: doctorRow.email, username: doctorRow.username },
+        });
+      }
 
-    const patientRow = db.prepare("SELECT * FROM patients WHERE username = ?").get(name);
-    if (patientRow?.password_hash && verifyPassword(String(password), patientRow.password_hash)) {
-      db.prepare("UPDATE patients SET last_login_at = datetime('now') WHERE id = ?").run(patientRow.id);
-      const token = issueToken({ role: "patient", patientId: patientRow.id });
-      return res.json({
-        token,
-        role: "patient",
-        patient: {
-          id: patientRow.id,
-          name: patientRow.name,
-          username: patientRow.username,
-          mustChangePassword: Boolean(patientRow.must_change_password),
-        },
-      });
-    }
+      const patientRow = await db.prepare("SELECT * FROM patients WHERE username = ?").get(name);
+      if (patientRow?.password_hash && verifyPassword(String(password), patientRow.password_hash)) {
+        await db.prepare("UPDATE patients SET last_login_at = UTC_TIMESTAMP() WHERE id = ?").run(patientRow.id);
+        const token = issueToken({ role: "patient", patientId: patientRow.id });
+        return res.json({
+          token,
+          role: "patient",
+          patient: {
+            id: patientRow.id,
+            name: patientRow.name,
+            username: patientRow.username,
+            mustChangePassword: Boolean(patientRow.must_change_password),
+          },
+        });
+      }
 
-    res.status(401).json({ error: "Incorrect username or password" });
-  });
+      res.status(401).json({ error: "Incorrect username or password" });
+    })
+  );
 
   app.post("/api/auth/logout", (req, res) => {
     const token = readToken(req);
@@ -120,28 +132,31 @@ export function attachAuth(app) {
   });
 
   /** Patients change their own temporary password. */
-  app.post("/api/auth/change-password", requirePatient, (req, res) => {
-    const { currentPassword, newPassword } = req.body || {};
-    if (!newPassword || String(newPassword).length < 8) {
-      return res.status(400).json({ error: "New password must be at least 8 characters" });
-    }
+  app.post(
+    "/api/auth/change-password",
+    requirePatient,
+    guard(async (req, res) => {
+      const { currentPassword, newPassword } = req.body || {};
+      if (!newPassword || String(newPassword).length < 8) {
+        return res.status(400).json({ error: "New password must be at least 8 characters" });
+      }
 
-    const row = db.prepare("SELECT * FROM patients WHERE id = ?").get(req.patient.id);
-    if (!verifyPassword(String(currentPassword || ""), row.password_hash)) {
-      return res.status(401).json({ error: "Current password is incorrect" });
-    }
+      const row = await db.prepare("SELECT * FROM patients WHERE id = ?").get(req.patient.id);
+      if (!verifyPassword(String(currentPassword || ""), row.password_hash)) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
 
-    db.prepare("UPDATE patients SET password_hash = ?, must_change_password = 0 WHERE id = ?").run(
-      hashPassword(String(newPassword)),
-      row.id
-    );
-    res.json({ ok: true });
-  });
+      await db
+        .prepare("UPDATE patients SET password_hash = ?, must_change_password = 0 WHERE id = ?")
+        .run(hashPassword(String(newPassword)), row.id);
+      res.json({ ok: true });
+    })
+  );
 }
 
-function resolveSession(req) {
+async function resolveSession(req) {
   if (process.env.MINDBRIDGE_NO_AUTH === "1") {
-    const doctor = db.prepare("SELECT * FROM doctors WHERE username = ?").get("drsmith");
+    const doctor = await db.prepare("SELECT * FROM doctors WHERE username = ?").get("drsmith");
     return doctor ? { role: "doctor", doctorId: doctor.id } : null;
   }
   const token = readToken(req);
@@ -153,44 +168,49 @@ function resolveSession(req) {
   return session;
 }
 
-export function requireDoctor(req, res, next) {
-  const session = resolveSession(req);
+export const requireDoctor = guard(async (req, res, next) => {
+  const session = await resolveSession(req);
   if (!session) return res.status(401).json({ error: "Session expired — please sign in again" });
   if (session.role !== "doctor") return res.status(403).json({ error: "This area is for clinicians" });
 
-  req.doctor = db.prepare("SELECT * FROM doctors WHERE id = ?").get(session.doctorId);
+  req.doctor = await db.prepare("SELECT * FROM doctors WHERE id = ?").get(session.doctorId);
   if (!req.doctor) return res.status(401).json({ error: "Session no longer valid" });
   next();
-}
+});
 
-export function requirePatient(req, res, next) {
-  const session = resolveSession(req);
+export const requirePatient = guard(async (req, res, next) => {
+  const session = await resolveSession(req);
   if (!session) return res.status(401).json({ error: "Session expired — please sign in again" });
   if (session.role !== "patient") return res.status(403).json({ error: "This area is for patients" });
 
-  req.patient = db.prepare("SELECT * FROM patients WHERE id = ?").get(session.patientId);
+  req.patient = await db.prepare("SELECT * FROM patients WHERE id = ?").get(session.patientId);
   if (!req.patient) return res.status(401).json({ error: "Session no longer valid" });
   next();
-}
+});
 
 /** Either role — used by /api/me so the client can route by role. */
-export function requireAnyone(req, res, next) {
-  const session = resolveSession(req);
+export const requireAnyone = guard(async (req, res, next) => {
+  const session = await resolveSession(req);
   if (!session) return res.status(401).json({ error: "Session expired — please sign in again" });
 
   req.session = session;
-  if (session.role === "doctor") req.doctor = db.prepare("SELECT * FROM doctors WHERE id = ?").get(session.doctorId);
-  else req.patient = db.prepare("SELECT * FROM patients WHERE id = ?").get(session.patientId);
+  if (session.role === "doctor") {
+    req.doctor = await db.prepare("SELECT * FROM doctors WHERE id = ?").get(session.doctorId);
+  } else {
+    req.patient = await db.prepare("SELECT * FROM patients WHERE id = ?").get(session.patientId);
+  }
   next();
-}
+});
 
-/** Doctor sets or resets a patient's password; the plaintext is returned once. */
-export function setPatientPassword(patientId, password, mustChange = true) {
+/**
+ * Doctor sets or resets a patient's password; the plaintext is returned once.
+ * `handle` lets the import path run this inside its transaction, so a patient
+ * created by a batch that later rolls back does not leave a password behind.
+ */
+export async function setPatientPassword(patientId, password, mustChange = true, handle = db) {
   const temp = password || generateTempPassword();
-  db.prepare("UPDATE patients SET password_hash = ?, must_change_password = ? WHERE id = ?").run(
-    hashPassword(temp),
-    mustChange ? 1 : 0,
-    patientId
-  );
+  await handle
+    .prepare("UPDATE patients SET password_hash = ?, must_change_password = ? WHERE id = ?")
+    .run(hashPassword(temp), mustChange ? 1 : 0, patientId);
   return temp;
 }

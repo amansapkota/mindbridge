@@ -4,19 +4,46 @@
  * One provider, configured by env (per the build advice — no model-swap layer
  * until a second model is actually in use). Because it is an OpenAI-compatible
  * chat-completions call, pointing MINDBRIDGE_BASE_URL at OpenRouter or a Gemini
- * compatibility endpoint works without code changes.
+ * compatibility endpoint works without code changes. It currently points at
+ * OpenRouter.
+ *
+ * MINDBRIDGE_FALLBACK_MODELS is the one concession to running on free-tier
+ * capacity: those endpoints return 429 from the upstream provider often enough
+ * that a single model would drop the doctor into the offline path mid-session
+ * for no good reason. Each candidate is tried in order, same prompt, same
+ * parsing; whichever answers is recorded in the report's model_used.
  *
  * With no API key configured the module falls back to a local analysis pass so
  * the create -> generate -> report loop is demoable offline. The fallback is
  * genuinely derived from the patient's data (trends, correlations, spike days,
  * partner mismatches), not canned text, and labels itself as such.
  */
+import "./env.js";
 
 const API_KEY = process.env.MINDBRIDGE_API_KEY || process.env.OPENAI_API_KEY || "";
 const BASE_URL = process.env.MINDBRIDGE_BASE_URL || "https://api.openai.com/v1";
 const MODEL = process.env.MINDBRIDGE_MODEL || "gpt-4o-mini";
 
+const FALLBACK_MODELS = (process.env.MINDBRIDGE_FALLBACK_MODELS || "")
+  .split(",")
+  .map((m) => m.trim())
+  .filter(Boolean);
+
+const MODEL_CHAIN = [MODEL, ...FALLBACK_MODELS];
+
+// Free-tier endpoints are queued upstream, so the same call can return in a
+// second or sit for minutes. Cap each attempt rather than letting one stalled
+// provider hold the doctor's request open until Node's 5-minute request
+// timeout kills it with nothing to show.
+const CALL_TIMEOUT_MS = Number(process.env.MINDBRIDGE_MODEL_TIMEOUT_MS || 90000);
+
 export const aiConfigured = () => Boolean(API_KEY);
+
+/** One line for the boot log. */
+export const aiDescription = () =>
+  API_KEY
+    ? `${MODEL} via ${BASE_URL}${FALLBACK_MODELS.length ? ` (falling back to ${FALLBACK_MODELS.join(", ")})` : ""}`
+    : "no API key — using offline analysis fallback";
 
 const SYSTEM_PROMPT = `You are a clinical data analyst supporting a psychiatrist or therapist. You review between-session wellbeing data for ONE patient and produce a structured briefing the doctor reads before a session.
 
@@ -129,12 +156,19 @@ export function runGuardrail(report) {
 /* ------------------------------------------------------------------ *
  * Provider call
  * ------------------------------------------------------------------ */
-async function callModel(userPrompt) {
+async function callModel(model, userPrompt) {
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${API_KEY}` },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${API_KEY}`,
+      // Ignored by other OpenAI-compatible providers; OpenRouter uses them to
+      // attribute the call.
+      "HTTP-Referer": "http://localhost:5180",
+      "X-Title": "Mindbridge",
+    },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       temperature: 0.4,
       response_format: { type: "json_object" },
       messages: [
@@ -142,6 +176,7 @@ async function callModel(userPrompt) {
         { role: "user", content: userPrompt },
       ],
     }),
+    signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -308,12 +343,20 @@ export async function generateReport(payload) {
   }
 
   const userPrompt = buildUserPrompt(payload);
-  try {
-    const report = await callModel(userPrompt);
-    return { report, model_used: MODEL };
-  } catch (err) {
-    // A failed call should not dead-end the doctor mid-session.
-    const report = offlineReport(payload);
-    return { report, model_used: `offline-analysis (${MODEL} failed: ${err.message.slice(0, 120)})` };
+  const failures = [];
+
+  for (const model of MODEL_CHAIN) {
+    try {
+      const report = await callModel(model, userPrompt);
+      return { report, model_used: model };
+    } catch (err) {
+      failures.push(`${model}: ${err.message.slice(0, 100)}`);
+      console.warn(`Report generation failed on ${model} — ${err.message.slice(0, 200)}`);
+    }
   }
+
+  // Every candidate failed. A dead provider should not dead-end the doctor
+  // mid-session, so fall through to the local analysis and say so on the report.
+  const report = offlineReport(payload);
+  return { report, model_used: `offline-analysis (${failures.join(" | ").slice(0, 200)})` };
 }

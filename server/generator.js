@@ -292,14 +292,23 @@ export function generateLogs(points, healthScore, perspective, seed, { moodOffse
  * days were missed rather than just a number.
  */
 export function computeCompliance(points, moodLogs) {
-  const expected = points.length;
-  const logged = new Set(moodLogs.map((m) => m.date)).size;
   const loggedDates = new Set(moodLogs.map((m) => m.date));
+  const trackedDates = points.map((p) => p.date);
+
+  // Only check-ins that land on a tracked day count towards coverage. Counting
+  // every check-in instead would let the numerator exceed the denominator — a
+  // patient who checks in on a day with no biometric data would read as "1 of 0
+  // days logged", or push the score past 100%. That is now the common case:
+  // patients start with no history and log through the portal, so a check-in
+  // routinely arrives on a day the tracked window does not cover.
+  const logged = trackedDates.filter((d) => loggedDates.has(d)).length;
+  const expected = trackedDates.length;
+
   return {
     score: expected === 0 ? 0 : Math.round((logged / expected) * 100),
     expected,
     logged,
-    missedDates: points.map((p) => p.date).filter((d) => !loggedDates.has(d)),
+    missedDates: trackedDates.filter((d) => !loggedDates.has(d)),
   };
 }
 
