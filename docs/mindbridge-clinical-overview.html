@@ -1,0 +1,1286 @@
+<title>Mindbridge &mdash; Between-Session Wellbeing Monitoring</title>
+
+<style>
+  /* ---------------------------------------------------------------
+     Tokens. Palette: deep petrol accent on a cool green-grey paper &mdash;
+     a clinical/laboratory register rather than a corporate blue one.
+     Semantic colours are separate from the accent.
+     --------------------------------------------------------------- */
+  :root {
+    --paper:        #F3F6F4;
+    --surface:      #FFFFFF;
+    --surface-sunk: #EAEFEC;
+    --ink:          #131F1C;
+    --ink-soft:     #3D4F4A;
+    --muted:        #64756F;
+    --rule:         #D2DBD7;
+    --rule-strong:  #B6C4BF;
+
+    --accent:       #0E6B60;
+    --accent-deep:  #084F47;
+    --accent-soft:  #D8E9E5;
+
+    --good:         #2C6B42;
+    --caution:      #8E5C05;
+    --critical:     #9C2C2C;
+    --good-bg:      #DFEDE3;
+    --caution-bg:   #F5E9D2;
+    --critical-bg:  #F3DEDE;
+
+    --shadow: 0 1px 2px rgba(19,31,28,.05), 0 8px 24px rgba(19,31,28,.05);
+
+    --display: Georgia, "Iowan Old Style", "Palatino Linotype", Palatino, "Times New Roman", serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --data: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+    --measure: 68ch;
+    --pad: clamp(1.15rem, 4vw, 2.5rem);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper:        #0C1311;
+      --surface:      #131C19;
+      --surface-sunk: #101816;
+      --ink:          #E2EAE7;
+      --ink-soft:     #B4C3BE;
+      --muted:        #839791;
+      --rule:         #26332F;
+      --rule-strong:  #35443F;
+
+      --accent:       #55B7A7;
+      --accent-deep:  #7FCFC1;
+      --accent-soft:  #16302C;
+
+      --good:         #6FBB86;
+      --caution:      #D6A44E;
+      --critical:     #DF8585;
+      --good-bg:      #16271B;
+      --caution-bg:   #2A2113;
+      --critical-bg:  #2B1717;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+    }
+  }
+
+  :root[data-theme="light"] {
+    --paper: #F3F6F4; --surface: #FFFFFF; --surface-sunk: #EAEFEC;
+    --ink: #131F1C; --ink-soft: #3D4F4A; --muted: #64756F;
+    --rule: #D2DBD7; --rule-strong: #B6C4BF;
+    --accent: #0E6B60; --accent-deep: #084F47; --accent-soft: #D8E9E5;
+    --good: #2C6B42; --caution: #8E5C05; --critical: #9C2C2C;
+    --good-bg: #DFEDE3; --caution-bg: #F5E9D2; --critical-bg: #F3DEDE;
+    --shadow: 0 1px 2px rgba(19,31,28,.05), 0 8px 24px rgba(19,31,28,.05);
+  }
+  :root[data-theme="dark"] {
+    --paper: #0C1311; --surface: #131C19; --surface-sunk: #101816;
+    --ink: #E2EAE7; --ink-soft: #B4C3BE; --muted: #839791;
+    --rule: #26332F; --rule-strong: #35443F;
+    --accent: #55B7A7; --accent-deep: #7FCFC1; --accent-soft: #16302C;
+    --good: #6FBB86; --caution: #D6A44E; --critical: #DF8585;
+    --good-bg: #16271B; --caution-bg: #2A2113; --critical-bg: #2B1717;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.28);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 17px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------------------------------------------------------------
+     Shell: reading column with a sticky contents rail on wide screens
+     --------------------------------------------------------------- */
+  .shell {
+    max-width: 1220px;
+    margin: 0 auto;
+    padding: 0 var(--pad) 6rem;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0 3.5rem;
+  }
+  @media (min-width: 1080px) {
+    .shell { grid-template-columns: 15.5rem minmax(0, 1fr); }
+    .masthead { grid-column: 1 / -1; }
+  }
+
+  .col { min-width: 0; max-width: 78ch; }
+
+  /* ------------------------------- masthead ------------------------------- */
+  .masthead {
+    padding: clamp(2.75rem, 7vw, 5rem) 0 2.25rem;
+    border-bottom: 2px solid var(--ink);
+    margin-bottom: 2.75rem;
+  }
+  .eyebrow {
+    font-family: var(--data);
+    font-size: .705rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.1rem;
+    align-items: center;
+  }
+  .masthead h1 {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(2.3rem, 6.2vw, 4rem);
+    line-height: 1.04;
+    letter-spacing: -.021em;
+    margin: 0 0 1.1rem;
+    text-wrap: balance;
+    max-width: 20ch;
+  }
+  .standfirst {
+    font-family: var(--display);
+    font-size: clamp(1.09rem, 2.3vw, 1.32rem);
+    line-height: 1.52;
+    color: var(--ink-soft);
+    margin: 0;
+    max-width: 56ch;
+  }
+  .byline {
+    margin-top: 2rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem 2.25rem;
+    font-family: var(--data);
+    font-size: .74rem;
+    color: var(--muted);
+    letter-spacing: .04em;
+  }
+  .byline b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ------------------------------- status banner ------------------------------- */
+  .status {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    background: var(--caution-bg);
+    border: 1px solid var(--rule-strong);
+    border-left: 4px solid var(--caution);
+    border-radius: 3px;
+    padding: 1.05rem 1.25rem;
+    margin: 2rem 0 0;
+    max-width: 72ch;
+  }
+  .status .mark {
+    font-family: var(--data);
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .1em;
+    color: var(--caution);
+    padding-top: .18rem;
+    white-space: nowrap;
+  }
+  .status p { margin: 0; font-size: .93rem; line-height: 1.55; color: var(--ink-soft); }
+
+  /* ------------------------------- contents rail ------------------------------- */
+  .toc { display: none; }
+  @media (min-width: 1080px) {
+    .toc {
+      display: block;
+      position: sticky;
+      top: 2rem;
+      align-self: start;
+      max-height: calc(100vh - 4rem);
+      overflow-y: auto;
+      padding-right: .75rem;
+    }
+    .toc h2 {
+      font-family: var(--data);
+      font-size: .68rem;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 1rem;
+      font-weight: 600;
+    }
+    .toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .58rem; }
+    .toc a {
+      color: var(--ink-soft);
+      text-decoration: none;
+      font-size: .845rem;
+      line-height: 1.35;
+      display: block;
+      border-left: 2px solid var(--rule);
+      padding-left: .8rem;
+    }
+    .toc a:hover, .toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+  }
+
+  /* ------------------------------- sections ------------------------------- */
+  section { margin: 0 0 3.75rem; scroll-margin-top: 1.5rem; }
+
+  .sec-head { margin: 0 0 1.4rem; }
+  .sec-num {
+    font-family: var(--data);
+    font-size: .7rem;
+    letter-spacing: .14em;
+    color: var(--accent);
+    display: block;
+    margin-bottom: .5rem;
+  }
+  h2.sec-title {
+    font-family: var(--display);
+    font-weight: 400;
+    font-size: clamp(1.6rem, 3.4vw, 2.15rem);
+    line-height: 1.16;
+    letter-spacing: -.014em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--body);
+    font-size: 1.005rem;
+    font-weight: 700;
+    letter-spacing: .002em;
+    margin: 2.3rem 0 .7rem;
+    color: var(--ink);
+  }
+  h4 {
+    font-family: var(--data);
+    font-size: .715rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    margin: 1.9rem 0 .65rem;
+  }
+  p { margin: 0 0 1.05rem; max-width: var(--measure); }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  strong { font-weight: 650; }
+  em.term { font-style: normal; font-weight: 600; color: var(--accent-deep); }
+
+  ul, ol { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1.15rem; }
+  li { margin-bottom: .52rem; }
+  li::marker { color: var(--rule-strong); }
+
+  code {
+    font-family: var(--data);
+    font-size: .855em;
+    background: var(--surface-sunk);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: .08em .34em;
+  }
+
+  /* ------------------------------- callouts ------------------------------- */
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 3px;
+    padding: 1.1rem 1.3rem;
+    margin: 1.5rem 0;
+    max-width: var(--measure);
+  }
+  .note > :last-child { margin-bottom: 0; }
+  .note.warn { border-left-color: var(--critical); }
+  .note.warn .note-label { color: var(--critical); }
+  .note-label {
+    font-family: var(--data);
+    font-size: .69rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    display: block;
+    margin-bottom: .45rem;
+  }
+
+  /* ------------------------------- tables ------------------------------- */
+  .table-wrap {
+    overflow-x: auto;
+    margin: 1.5rem 0 1.75rem;
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+  caption {
+    caption-side: bottom;
+    text-align: left;
+    font-size: .785rem;
+    color: var(--muted);
+    padding: .7rem .95rem;
+    border-top: 1px solid var(--rule);
+    line-height: 1.45;
+  }
+  th, td { text-align: left; padding: .62rem .95rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  thead th {
+    font-family: var(--data);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+    background: var(--surface-sunk);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num, th.num { text-align: right; font-family: var(--data); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  td.field { font-family: var(--data); font-size: .82rem; color: var(--accent-deep); white-space: nowrap; }
+
+  /* ------------------------------- pills ------------------------------- */
+  .pill {
+    display: inline-block;
+    font-family: var(--data);
+    font-size: .655rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    padding: .17em .52em;
+    border-radius: 3px;
+    border: 1px solid currentColor;
+    white-space: nowrap;
+  }
+  .pill.real     { color: var(--good);     background: var(--good-bg); }
+  .pill.sim      { color: var(--caution);  background: var(--caution-bg); }
+  .pill.ai       { color: var(--accent);   background: var(--accent-soft); }
+
+  /* ------------------------------- stream cards ------------------------------- */
+  .streams { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); margin: 1.6rem 0 1.75rem; max-width: 78ch; }
+  .stream {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 1.05rem 1.15rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .stream-top { display: flex; justify-content: space-between; align-items: baseline; gap: .6rem; }
+  .stream-name { font-weight: 650; font-size: .95rem; }
+  .stream p { margin: 0; font-size: .865rem; color: var(--ink-soft); line-height: 1.5; max-width: none; }
+
+  /* ------------------------------- report specimen ------------------------------- */
+  .specimen {
+    background: var(--surface);
+    border: 1px solid var(--rule-strong);
+    border-radius: 4px;
+    margin: 1.6rem 0 1.5rem;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    max-width: 78ch;
+  }
+  .specimen-head {
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--rule);
+    background: var(--surface-sunk);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .45rem 1.4rem;
+    align-items: baseline;
+  }
+  .specimen-head .who { font-family: var(--display); font-size: 1.1rem; }
+  .specimen-head .meta { font-family: var(--data); font-size: .71rem; color: var(--muted); letter-spacing: .03em; }
+  .specimen-body { padding: 1.25rem; display: flex; flex-direction: column; gap: 1.35rem; }
+  .block-label {
+    font-family: var(--data);
+    font-size: .665rem;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: .5rem;
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+  }
+  .block-label::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .ai-block { border-left: 3px solid var(--accent); padding-left: 1rem; }
+  .ai-block .block-label { color: var(--accent); }
+  .ai-block p { font-size: .93rem; line-height: 1.58; margin: 0; color: var(--ink-soft); max-width: none; }
+  .finding { border-top: 1px solid var(--rule); padding-top: .85rem; }
+  .finding:first-of-type { border-top: none; padding-top: 0; }
+  .finding-title { font-weight: 650; font-size: .92rem; margin: 0 0 .3rem; max-width: none; }
+  .finding-detail { font-size: .885rem; color: var(--ink-soft); margin: 0 0 .4rem; max-width: none; line-height: 1.55; }
+  .finding-evidence {
+    font-family: var(--data);
+    font-size: .755rem;
+    color: var(--muted);
+    background: var(--surface-sunk);
+    border-radius: 3px;
+    padding: .5rem .65rem;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+  .guard {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    font-family: var(--data);
+    font-size: .73rem;
+    color: var(--good);
+    background: var(--good-bg);
+    border-radius: 3px;
+    padding: .5rem .75rem;
+  }
+
+  /* ------------------------------- phased roadmap ------------------------------- */
+  .phases { list-style: none; padding: 0; margin: 1.6rem 0; max-width: 78ch; counter-reset: phase; display: flex; flex-direction: column; gap: 0; }
+  .phase {
+    counter-increment: phase;
+    display: grid;
+    grid-template-columns: 3.1rem 1fr;
+    gap: 0 1.15rem;
+    padding: 1.15rem 0;
+    border-top: 1px solid var(--rule);
+    margin: 0;
+  }
+  .phase:last-child { border-bottom: 1px solid var(--rule); }
+  .phase::before {
+    content: "0" counter(phase);
+    font-family: var(--data);
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--accent);
+    padding-top: .16rem;
+    letter-spacing: .04em;
+  }
+  /* The ::before counter is itself a grid item, so the text has to live in a
+     single wrapper — otherwise each child claims its own cell and the prose
+     wraps into the 3rem number column. */
+  .phase-body { min-width: 0; }
+  .phase h3 { margin: 0 0 .3rem; font-size: .985rem; }
+  .phase p { margin: 0 0 .45rem; font-size: .9rem; color: var(--ink-soft); max-width: none; }
+  .phase p:last-child { margin-bottom: 0; }
+  .gate {
+    font-family: var(--data);
+    font-size: .735rem;
+    color: var(--muted);
+    display: block;
+    margin-top: .45rem;
+  }
+  .gate b { color: var(--ink-soft); font-weight: 600; }
+
+  /* ------------------------------- benefit grid ------------------------------- */
+  .benefits { display: grid; gap: 1.1rem; grid-template-columns: repeat(auto-fit, minmax(16.5rem, 1fr)); margin: 1.6rem 0; max-width: 78ch; }
+  .benefit { border-top: 2px solid var(--accent); padding-top: .85rem; }
+  .benefit h3 { margin: 0 0 .4rem; font-size: .95rem; }
+  .benefit p { margin: 0; font-size: .88rem; color: var(--ink-soft); max-width: none; line-height: 1.55; }
+
+  /* ------------------------------- footer ------------------------------- */
+  .colophon {
+    border-top: 2px solid var(--ink);
+    padding-top: 1.5rem;
+    margin-top: 1rem;
+    font-size: .845rem;
+    color: var(--muted);
+    max-width: 78ch;
+  }
+  .colophon p { max-width: none; font-size: inherit; }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+
+  @media print {
+    body { background: #fff; font-size: 10.5pt; }
+    .toc, .status { display: none; }
+    .shell { grid-template-columns: 1fr; max-width: none; padding: 0; }
+    section { break-inside: auto; margin-bottom: 2rem; }
+    .specimen, .note, .table-wrap { break-inside: avoid; box-shadow: none; }
+    h2.sec-title { break-after: avoid; }
+  }
+</style>
+
+<div class="shell">
+
+  <header class="masthead">
+    <p class="eyebrow">
+      <span>Mindbridge</span>
+      <span>Clinical &amp; research overview</span>
+      <span>v1.0 &middot; August 2026</span>
+    </p>
+    <h1>What happens between sessions</h1>
+    <p class="standfirst">
+      A clinician sees a patient for fifty minutes a month and asks them to remember the other
+      forty-three thousand. Mindbridge is a prototype that closes some of that gap &mdash; collecting
+      day-to-day wellbeing data between appointments and turning it into a short, evidence-linked
+      briefing the clinician reads before the session starts.
+    </p>
+    <div class="byline">
+      <span><b>Audience</b> Clinicians, researchers, service leads</span>
+      <span><b>Status</b> Working prototype</span>
+      <span><b>Reading time</b> ~12 minutes</span>
+    </div>
+
+    <div class="status">
+      <span class="mark">READ FIRST</span>
+      <p>
+        Mindbridge is a <strong>research prototype</strong>. It is not a medical device, it has not
+        been clinically validated, and it must not be used to make care decisions for real patients
+        in its current form. It does not diagnose, and it is designed so that it cannot: see
+        <a href="#constraints">&sect;4</a>. Sections <a href="#reality">7</a>&ndash;<a href="#validation">9</a>
+        set out what would have to be true before any of this touched real care.
+      </p>
+    </div>
+  </header>
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#problem">1 &nbsp;The clinical problem</a></li>
+      <li><a href="#what">2 &nbsp;What Mindbridge does</a></li>
+      <li><a href="#data">3 &nbsp;The four data streams</a></li>
+      <li><a href="#constraints">4 &nbsp;What the AI may not do</a></li>
+      <li><a href="#specimen">5 &nbsp;A real briefing</a></li>
+      <li><a href="#provenance">6 &nbsp;Knowing what is real</a></li>
+      <li><a href="#reality">7 &nbsp;Taking it into real care</a></li>
+      <li><a href="#governance">8 &nbsp;Safety, ethics, regulation</a></li>
+      <li><a href="#validation">9 &nbsp;A validation pathway</a></li>
+      <li><a href="#benefits">10 &nbsp;What it could be worth</a></li>
+      <li><a href="#risks">11 &nbsp;Risks &amp; open questions</a></li>
+      <li><a href="#appendix">12 &nbsp;Technical appendix</a></li>
+    </ol>
+  </nav>
+
+  <main class="col">
+
+    <!-- =========================================================== 1 -->
+    <section id="problem">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 1</span>
+        <h2 class="sec-title">The clinical problem: retrospective recall is a poor instrument</h2>
+      </div>
+
+      <p>
+        Outpatient psychiatry and psychotherapy run on episodic contact. A patient seen monthly is
+        asked, at each appointment, to summarise four weeks of internal experience from memory. That
+        summary is the primary evidence on which the next month of care is planned.
+      </p>
+
+      <p>
+        This is a known measurement problem, not a failure of individual patients. Retrospective
+        self-report is shaped by <em class="term">recall bias</em> &mdash; recent days and emotionally
+        extreme days are over-weighted, ordinary days compress, and current mood colours the
+        recollection of past mood. A patient who is well on the day of the appointment tends to
+        under-report a bad fortnight; a patient who is struggling that morning may report the whole
+        month as uniformly bad. <em class="term">Ecological momentary assessment</em> (EMA) &mdash; asking
+        people to report in the moment, repeatedly, in daily life &mdash; was developed in response to
+        exactly this, and is a well-established research method.
+      </p>
+
+      <p>Three things are typically lost between appointments:</p>
+
+      <ul>
+        <li><strong>Temporal structure.</strong> Not "sleep was bad" but which nights, in what order, and what happened around them.</li>
+        <li><strong>Collateral observation.</strong> What a partner or family member noticed, which routinely diverges from self-report in clinically meaningful ways.</li>
+        <li><strong>Non-events.</strong> The days nothing was recorded at all &mdash; which may be the most informative days of the month.</li>
+      </ul>
+
+      <p>
+        Mindbridge is an attempt to make that period legible without asking the clinician to read
+        thirty days of raw charts before every appointment.
+      </p>
+    </section>
+
+    <!-- =========================================================== 2 -->
+    <section id="what">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 2</span>
+        <h2 class="sec-title">What Mindbridge does</h2>
+      </div>
+
+      <p>
+        The system has one loop. A patient logs short daily check-ins between appointments. Before
+        the next session, the clinician generates a briefing. The briefing summarises the window,
+        names specific dates, links what was measured to what was written, and proposes things to ask
+        about &mdash; each claim tied to a date or a number in the underlying record.
+      </p>
+
+      <p>The clinician's view and the patient's view are deliberately different:</p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>Access is asymmetric by design. The rationale is in &sect;11 &mdash; it is a real trade-off, not an oversight.</caption>
+          <thead>
+            <tr><th>Element</th><th>Clinician</th><th>Patient</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Own check-ins, journal, charts</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Check-in coverage / gaps</td><td>Yes</td><td>Yes</td></tr>
+            <tr><td>Clinician's baseline severity rating</td><td>Yes</td><td>No</td></tr>
+            <tr><td>Partner / observer stream</td><td>Yes</td><td>No</td></tr>
+            <tr><td>AI briefing</td><td>Yes</td><td>No</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The reasoning: a patient who can see the clinician's severity rating, or their partner's
+        parallel account, is answering a different question when they log their mood. Showing it
+        would change what is reported, and the report is the measurement. That reasoning is
+        contestable and is revisited in <a href="#risks">&sect;11</a>.
+      </p>
+    </section>
+
+    <!-- =========================================================== 3 -->
+    <section id="data">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 3</span>
+        <h2 class="sec-title">The four data streams</h2>
+      </div>
+
+      <p>
+        A patient record is assembled from four streams. Each carries a provenance tag, so any row
+        can be traced to where it came from.
+      </p>
+
+      <div class="streams">
+        <article class="stream">
+          <div class="stream-top"><span class="stream-name">Daily check-in</span><span class="pill real">Self-reported</span></div>
+          <p>One mood rating (1&ndash;10) plus free tags, once per day. Re-saving replaces the day rather than stacking entries.</p>
+        </article>
+        <article class="stream">
+          <div class="stream-top"><span class="stream-name">Journal</span><span class="pill real">Self-reported</span></div>
+          <p>Free text, written by the patient in their own words. This is what gives the numbers meaning.</p>
+        </article>
+        <article class="stream">
+          <div class="stream-top"><span class="stream-name">Physiological</span><span class="pill sim">Simulated</span></div>
+          <p>Sleep duration and quality, resting heart rate, HRV, respiration rate. Currently synthetic &mdash; see &sect;6.</p>
+        </article>
+        <article class="stream">
+          <div class="stream-top"><span class="stream-name">Observer</span><span class="pill sim">Simulated</span></div>
+          <p>A partner or family member's parallel rating and notes about the same days. Divergence is the signal.</p>
+        </article>
+      </div>
+
+      <h3>Measured fields</h3>
+
+      <div class="table-wrap">
+        <table>
+          <caption>Ranges are enforced at the import boundary; out-of-range values are rejected per-row with the exact path to the offending field.</caption>
+          <thead>
+            <tr><th>Field</th><th>Unit / range</th><th>Interpretation</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="field">sleep_hours</td><td class="num">0&ndash;24 h</td><td>Total sleep per night</td></tr>
+            <tr><td class="field">sleep_quality</td><td class="num">0&ndash;100</td><td>Composite restfulness index</td></tr>
+            <tr><td class="field">resting_hr</td><td class="num">20&ndash;220 bpm</td><td>Resting heart rate</td></tr>
+            <tr><td class="field">hrv</td><td class="num">0&ndash;300 ms</td><td>Heart rate variability</td></tr>
+            <tr><td class="field">breathing_rate</td><td class="num">2&ndash;60 /min</td><td>Respiration rate</td></tr>
+            <tr><td class="field">mood_score</td><td class="num">1&ndash;10</td><td>Self-rated mood</td></tr>
+            <tr><td class="field">anxiety_score</td><td class="num">1&ndash;10</td><td>Self-rated anxiety</td></tr>
+            <tr><td class="field">energy_score</td><td class="num">1&ndash;10</td><td>Self-rated energy</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Coverage is a measurement, not a grade</h3>
+
+      <p>
+        The system reports <em class="term">check-in coverage</em>: of the days in the tracked window,
+        how many carry a check-in, and precisely which dates are missing. This is surfaced to the
+        clinician as a data-quality caveat &mdash; a quiet fortnight with 40% coverage is not evidence of a
+        quiet fortnight.
+      </p>
+
+      <div class="note">
+        <span class="note-label">Design note</span>
+        <p>
+          The briefing is instructed to frame gaps as a limitation of the data, never as
+          non-compliance by the patient. The reason a check-in was missed is often clinically
+          interesting in itself, and framing it as a failure makes it less likely to be discussed.
+        </p>
+      </div>
+    </section>
+
+    <!-- =========================================================== 4 -->
+    <section id="constraints">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 4</span>
+        <h2 class="sec-title">What the AI may not do</h2>
+      </div>
+
+      <p>
+        The language model is given a narrow job: describe patterns in data. It is instructed, in
+        absolute terms, that it must never name, suggest, imply or rule out any diagnosis; never
+        recommend or adjust medication, dose or treatment; and never interpret a pattern as illness.
+        Suggestions must be phrased as things to explore &mdash; "consider asking about&hellip;",
+        "worth monitoring&hellip;" &mdash; and every claim must trace to a date or a number in the
+        supplied record.
+      </p>
+
+      <p>Three mechanisms enforce this, in order of importance:</p>
+
+      <ol>
+        <li>
+          <strong>The instruction itself.</strong> The primary control. The model is scoped to
+          pattern description and given an explicit output schema.
+        </li>
+        <li>
+          <strong>A post-hoc keyword screen.</strong> Every generated briefing is scanned for
+          diagnostic and prescribing language &mdash; diagnostic terms, named disorders, dosing verbs. A
+          flagged briefing is still saved and shown, with a banner naming the matched wording. It is a
+          cheap smoke alarm, not a safety system, and is documented as such.
+        </li>
+        <li>
+          <strong>Visual separation in the interface.</strong> Model-generated interpretation is
+          rendered in marked blocks labelled <span class="pill ai">AI interpretation</span>, visually
+          distinct from unmarked panels showing recorded data. The clinician can always see which is
+          which.
+        </li>
+      </ol>
+
+      <div class="note warn">
+        <span class="note-label">Limitation, stated plainly</span>
+        <p>
+          A keyword screen catches vocabulary, not meaning. A model can describe a diagnosis
+          perfectly while avoiding every listed word. The screen reduces obvious failures; it does not
+          make the output safe. The clinician reading the briefing is the control that matters, and the
+          system is built on the assumption that a qualified human reads every word before it informs
+          anything.
+        </p>
+      </div>
+    </section>
+
+    <!-- =========================================================== 5 -->
+    <section id="specimen">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 5</span>
+        <h2 class="sec-title">A real briefing, unedited</h2>
+      </div>
+
+      <p>
+        Below is genuine output from the running system &mdash; not an illustration. The patient is
+        synthetic (see <a href="#provenance">&sect;6</a>); the analysis is not. It is reproduced
+        exactly as generated, including its own phrasing.
+      </p>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="who">Daniel Okafor, 34</span>
+          <span class="meta">2 Jul &ndash; 31 Jul 2026 &middot; 30 days &middot; coverage 57% (13 days missing)</span>
+        </div>
+        <div class="specimen-body">
+
+          <div class="ai-block">
+            <span class="block-label">AI interpretation &mdash; summary</span>
+            <p>
+              Over the tracked window of 2026-07-02 to 2026-07-31, sleep remained generally low
+              (average &asymp;4.2 hrs) with extreme lows of 0.4 hrs on 2026-07-18 and 2.2 hrs on
+              2026-07-23. Self-rated mood fluctuated between 1 and 7, frequently falling to 1&ndash;3,
+              especially mid-month and late month. Anxiety repeatedly reached 8&ndash;10&hellip;
+              Partner observations often rated the patient lower than self-report and noted withdrawal
+              or flat affect on days such as 2026-07-06, 2026-07-11, 2026-07-17 and 2026-07-28.
+            </p>
+          </div>
+
+          <div>
+            <span class="block-label" style="color: var(--accent);">AI interpretation &mdash; findings</span>
+
+            <div class="finding">
+              <p class="finding-title">Severe sleep disruption coincides with low mood and partner-observed withdrawal</p>
+              <p class="finding-detail">
+                Sleep dropped to 0.4 hrs on July 18 and 2.2 hrs on July 23, with self-rated mood of 1
+                on both days and partner notes of being withdrawn or "flat".
+              </p>
+              <p class="finding-evidence">
+                sleep_hours: 0.4 on 2026-07-18, 2.2 on 2026-07-23 &middot; mood_1_10: 1 on both dates
+                &middot; partner journal 2026-07-17, 2026-07-28 describing withdrawal
+              </p>
+            </div>
+
+            <div class="finding">
+              <p class="finding-title">Partner observations frequently rate the patient lower than self-report</p>
+              <p class="finding-detail">
+                On days such as July 13 (self mood 5 vs partner 4) and July 28 (self 4 vs partner 3)
+                the partner rated the patient lower, often coinciding with self-reported hopeless or
+                numb tags.
+              </p>
+              <p class="finding-evidence">
+                patient mood_1_10: 5 on 2026-07-13, 4 on 2026-07-28 &middot; partner mood: 4 and 3
+                &middot; patient tags [ok] on 2026-07-28 vs partner tags [anxious, low]
+              </p>
+            </div>
+          </div>
+
+          <div class="ai-block">
+            <span class="block-label">AI interpretation &mdash; suggested discussion points</span>
+            <p>
+              "Consider exploring discrepancies between self-report and partner observations on days
+              such as July 13 and July 28 to understand gaps in awareness." &mdash; rationale: partner
+              frequently rated the patient lower than self-report on days tagged hopeless or numb.
+            </p>
+          </div>
+
+          <div class="guard">
+            <span>&#10003;</span>
+            <span>Diagnostic-language screen: PASSED &mdash; 0 matches</span>
+          </div>
+
+        </div>
+      </div>
+
+      <p>
+        What is worth noticing is the fourth finding. Nobody wrote a rule that says "compare the two
+        accounts and flag divergence" &mdash; the discrepancy detection is an emergent read of two parallel
+        streams. It is also exactly the kind of observation that is easy to miss when scrolling
+        thirty days of charts, and exactly the kind that changes what a clinician asks in the room.
+      </p>
+
+      <p>
+        Equally worth noticing: every claim carries its own receipts. A clinician who distrusts a
+        finding can check it against the recorded data in seconds, which is the only reasonable
+        posture toward a language model in a clinical setting.
+      </p>
+    </section>
+
+    <!-- =========================================================== 6 -->
+    <section id="provenance">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 6</span>
+        <h2 class="sec-title">Knowing what is real</h2>
+      </div>
+
+      <p>
+        The prototype needed patient histories before any patient existed, so it includes a data
+        generator: a statistical model that produces plausible 30-day histories across three
+        documented severity bands, with journal text drawn from a pool of 48 hand-written entries.
+      </p>
+
+      <p>
+        This is the single most dangerous thing in the system, because fabricated clinical data that
+        looks real is fabricated clinical data. It is handled by making provenance non-optional &mdash;
+        every row carries a <code>source</code> tag, and the generator is never triggered
+        automatically:
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <caption>A new patient starts empty. Generated data is only ever produced by an explicit, deliberate action.</caption>
+          <thead>
+            <tr><th>Tag</th><th>Origin</th><th>Trustworthy?</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="field">self-reported</td>
+              <td>The patient, through the portal</td>
+              <td><span class="pill real">Real</span></td>
+            </tr>
+            <tr>
+              <td class="field">imported</td>
+              <td>Validated JSON from another system</td>
+              <td><span class="pill real">Real</span></td>
+            </tr>
+            <tr>
+              <td class="field">generated</td>
+              <td>The simulator, on explicit request</td>
+              <td><span class="pill sim">Synthetic</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p>
+        The generator remains useful for three legitimate purposes: demonstrating the loop without
+        exposing patient data, load-testing, and &mdash; most importantly &mdash; <strong>adversarial testing of
+        the briefing</strong>. Because a synthetic history has known ground truth, it can be used to
+        ask whether the model finds the pattern that was deliberately planted, and whether it invents
+        patterns that were not. That is a genuine evaluation instrument, and it is the reason the
+        generator is worth keeping.
+      </p>
+
+      <div class="note">
+        <span class="note-label">Tell-tale</span>
+        <p>
+          Generated journal text repeats across a 30-day window, because the pool holds 48 entries.
+          If you are reading a record and the same sentence appears three times, you are reading
+          synthetic data. Real entries never repeat verbatim.
+        </p>
+      </div>
+    </section>
+
+    <!-- =========================================================== 7 -->
+    <section id="reality">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 7</span>
+        <h2 class="sec-title">Taking it into real care</h2>
+      </div>
+
+      <p>
+        The prototype already runs on real infrastructure: a live relational database and a live
+        language model, with the patient portal producing genuine self-reported entries. Three things
+        stand between that and a system usable in a service.
+      </p>
+
+      <h3>7.1 &nbsp;Replace simulated physiology with real device data</h3>
+
+      <p>
+        The physiological stream is the main synthetic component. The realistic route is consumer
+        wearables the patient already owns, read through their vendor APIs &mdash; sleep staging, resting
+        heart rate, HRV and respiration are all standard exports. A single normalising layer would map
+        each vendor's shape onto the internal schema, which is why that schema is deliberately
+        vendor-neutral.
+      </p>
+
+      <p>Three caveats a researcher will raise immediately, and should:</p>
+
+      <ul>
+        <li>
+          <strong>Consumer wearables are not clinical instruments.</strong> Sleep staging in
+          particular is derived and vendor-specific; two devices will disagree about the same night.
+          Treat these as trend signals within a person, never as absolute values or between-person
+          comparisons.
+        </li>
+        <li>
+          <strong>Device ownership is a confounder.</strong> Restricting a study to people who own a
+          wearable selects for income, age and digital literacy, and will bias any finding.
+        </li>
+        <li>
+          <strong>Missingness is not random.</strong> A device goes uncharged during exactly the weeks
+          a patient is least well. The gap and the deterioration are correlated, which is a serious
+          analytic hazard and also, clinically, a signal in itself.
+        </li>
+      </ul>
+
+      <h3>7.2 &nbsp;Replace ad-hoc scales with validated instruments</h3>
+
+      <p>
+        The 1&ndash;10 mood, anxiety and energy ratings are convenient and unvalidated. They carry no
+        psychometric properties, no established cut-offs, no norms, and cannot be compared across
+        studies or services. For any real use they should sit alongside &mdash; or be replaced by &mdash;
+        instruments already validated for the population in question, administered at their intended
+        frequency rather than daily.
+      </p>
+
+      <p>
+        A defensible design keeps a very short daily item for temporal resolution and adds a
+        periodic validated instrument for measurement, rather than pretending a daily 1&ndash;10 slider
+        is a scale. Selecting those instruments is a clinical and psychometric decision, not an
+        engineering one, and should be made with the service and its population.
+      </p>
+
+      <h3>7.3 &nbsp;Build the escalation path that does not currently exist</h3>
+
+      <p>
+        This is the most important gap. The prototype has <strong>no risk detection and no escalation
+        route</strong>. A patient can write something indicating acute risk into the journal at
+        two in the morning, and the system will file it quietly and show it to the clinician at the
+        next appointment, which may be four weeks away.
+      </p>
+
+      <div class="note warn">
+        <span class="note-label">Blocking requirement</span>
+        <p>
+          A between-session monitoring tool creates an implied promise that someone is watching. If
+          nobody is, the tool is worse than nothing &mdash; a patient may disclose to the app instead of to a
+          person. Before any real deployment this needs: crisis resources shown at the point of
+          writing, a defined monitoring window with an explicit statement of what is
+          <em>not</em> monitored, a triage route to a human, and an audited escalation protocol agreed
+          with the service. None of this is technically hard. All of it is mandatory.
+        </p>
+      </div>
+    </section>
+
+    <!-- =========================================================== 8 -->
+    <section id="governance">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 8</span>
+        <h2 class="sec-title">Safety, ethics and regulation</h2>
+      </div>
+
+      <h3>Data protection</h3>
+
+      <p>
+        Mental-health records are special category data under UK/EU GDPR and protected health
+        information under HIPAA. The current prototype does not meet the bar and does not pretend to:
+        it uses in-memory sessions, has no rate limiting or account lockout, no field-level
+        encryption, and no audit trail. A real deployment needs encryption in transit and at rest,
+        role-based access control, a complete audit log of every record access, defined retention and
+        erasure, a Data Protection Impact Assessment, and &mdash; where a language model is involved &mdash; a
+        clear, documented answer to where the text goes and whether it can be retained or trained on.
+      </p>
+
+      <div class="note warn">
+        <span class="note-label">Current deployment</span>
+        <p>
+          The prototype sends patient text to a third-party model provider over the public internet,
+          and its database is currently reachable from any host. Both are acceptable for a prototype
+          holding synthetic data. Both are disqualifying for real patient data. Self-hosting the model,
+          or contracting for a zero-retention endpoint, is a precondition rather than an optimisation.
+        </p>
+      </div>
+
+      <h3>Consent</h3>
+
+      <p>
+        Consent must be specific and revocable, and must cover the parts patients do not expect: that
+        an automated system reads their journal; that a partner may contribute observations about
+        them; that a clinician sees a rating they cannot see themselves. The observer stream needs its
+        own consent from <em>both</em> parties, and a clear position on what happens to it when a
+        relationship ends. Withdrawal must be genuinely available without affecting care.
+      </p>
+
+      <h3>Regulatory position</h3>
+
+      <p>
+        Software that informs clinical decisions is likely to fall within the medical device
+        definition in most jurisdictions &mdash; Software as a Medical Device under UKCA/CE marking, or the
+        FDA's SaMD framework. The determining question is what the software claims. "Displays data the
+        patient recorded" sits differently from "identifies patients at risk of deterioration". The
+        current framing &mdash; decision support, no diagnosis, clinician-in-the-loop &mdash; is the more
+        conservative position, but classification is a regulatory judgement to be taken formally and
+        early, not asserted in a document like this one. In an NHS context, DTAC would apply
+        alongside.
+      </p>
+    </section>
+
+    <!-- =========================================================== 9 -->
+    <section id="validation">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 9</span>
+        <h2 class="sec-title">A validation pathway</h2>
+      </div>
+
+      <p>
+        These phases are genuinely sequential: each answers a question that makes the next one worth
+        running, and a failure at any stage should stop the work rather than be designed around.
+      </p>
+
+      <ol class="phases">
+        <li class="phase">
+          <div class="phase-body">
+          <h3>Technical and analytic validation</h3>
+          <p>
+            No patients. Using synthetic records with known ground truth, measure whether the briefing
+            finds planted patterns, how often it fabricates patterns that are not there, and how stable
+            its output is across repeated runs on identical input.
+          </p>
+          <span class="gate"><b>Gate:</b> an acceptable and quantified fabrication rate. Nothing proceeds without this number.</span>
+        </div>
+        </li>
+        <li class="phase">
+          <div class="phase-body">
+          <h3>Clinical face validity</h3>
+          <p>
+            Clinicians blind-rate briefings against the underlying records: is it accurate, is it
+            useful, would it change what you ask? Include briefings generated from records with no real
+            signal, to test whether the system manufactures narrative from noise.
+          </p>
+          <span class="gate"><b>Gate:</b> clinicians can distinguish informative briefings from empty ones.</span>
+        </div>
+        </li>
+        <li class="phase">
+          <div class="phase-body">
+          <h3>Feasibility and acceptability</h3>
+          <p>
+            A small cohort of consenting patients, with full safety scaffolding in place. Measures:
+            sustained adherence over weeks, attrition, patient-reported burden, effect on the
+            therapeutic relationship, and clinician time cost per patient.
+          </p>
+          <span class="gate"><b>Gate:</b> adherence that does not collapse after the novelty period, and no harm to the alliance.</span>
+        </div>
+        </li>
+        <li class="phase">
+          <div class="phase-body">
+          <h3>Clinical utility</h3>
+          <p>
+            Only now a controlled question: does access to the briefing change clinical decisions, and
+            do those changes improve outcomes on validated measures against standard care?
+          </p>
+          <span class="gate"><b>Gate:</b> the honest possibility of a null result, reported.</span>
+        </div>
+        </li>
+      </ol>
+
+      <p>
+        Phase&nbsp;1 is the phase most often skipped and the one that matters most here, because a
+        language model that confabulates a date or a correlation produces output that is fluent,
+        specific, evidence-shaped and wrong &mdash; the hardest kind of error for a busy reader to catch.
+      </p>
+    </section>
+
+    <!-- =========================================================== 10 -->
+    <section id="benefits">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 10</span>
+        <h2 class="sec-title">What it could be worth</h2>
+      </div>
+
+      <p>
+        These are hypotheses the design is built to test, not demonstrated outcomes. Nothing below has
+        been shown for this system.
+      </p>
+
+      <div class="benefits">
+        <div class="benefit">
+          <h3>Session time spent better</h3>
+          <p>
+            If the first ten minutes no longer go on reconstructing the month, they go somewhere else.
+            The briefing arrives with dates already identified, so the conversation can start at "tell
+            me about the eighteenth".
+          </p>
+        </div>
+        <div class="benefit">
+          <h3>Divergence made visible</h3>
+          <p>
+            Systematic gaps between self-report and observer report are clinically meaningful and
+            easy to miss. Surfacing them with specific dates turns an impression into something
+            discussable.
+          </p>
+        </div>
+        <div class="benefit">
+          <h3>Caseload triage</h3>
+          <p>
+            Across a caseload, coverage and trend direction offer a defensible way to decide who to
+            contact sooner &mdash; a scheduling aid, not a clinical judgement.
+          </p>
+        </div>
+        <div class="benefit">
+          <h3>Patients see their own pattern</h3>
+          <p>
+            The portal shows patients their own trends. For some, seeing that a bad week was a bad
+            week and not a bad life is itself therapeutic, and it supports self-monitoring skills
+            taught in most structured therapies.
+          </p>
+        </div>
+        <div class="benefit">
+          <h3>Research-grade structure</h3>
+          <p>
+            Timestamped, provenance-tagged, exportable longitudinal data with explicit missingness is
+            a usable substrate for research &mdash; which is rarer in routine services than it should be.
+          </p>
+        </div>
+        <div class="benefit">
+          <h3>Data quality made honest</h3>
+          <p>
+            Because coverage is reported alongside every briefing, the clinician always knows how much
+            of the window they are actually seeing. Most systems quietly present partial data as
+            complete.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================== 11 -->
+    <section id="risks">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 11</span>
+        <h2 class="sec-title">Risks and open questions</h2>
+      </div>
+
+      <h4>Automation bias</h4>
+      <p>
+        A fluent, confident briefing is persuasive regardless of accuracy. The risk is that it
+        anchors clinical thinking before the clinician forms their own view. Visual separation of
+        interpretation from data helps; it does not solve it. Presenting the briefing <em>after</em>
+        the clinician's own review, rather than before, is worth testing.
+      </p>
+
+      <h4>Surveillance and the therapeutic alliance</h4>
+      <p>
+        Daily monitoring plus an observer stream can feel like being watched. That perception may
+        suppress honest reporting &mdash; degrading the measurement &mdash; or alter the relationship in ways that
+        matter more than any data gained. This is an empirical question for phase&nbsp;3, and the
+        design should be prepared to lose.
+      </p>
+
+      <h4>The asymmetry problem</h4>
+      <p>
+        Patients cannot see their severity rating, their partner's entries, or the briefing written
+        about them. The rationale (&sect;2) is measurement integrity. The counter-argument is that
+        this is their health record, that professional opacity has a poor history in mental health
+        care, and that in some jurisdictions they have a legal right of access regardless. This
+        remains genuinely unresolved and should be decided with patient representatives, not by
+        engineers.
+      </p>
+
+      <h4>Quantification changes what is attended to</h4>
+      <p>
+        What gets measured gets discussed. A system that measures sleep, heart rate and mood ratings
+        may quietly shift sessions toward what is measurable and away from meaning, relationship and
+        circumstance &mdash; which is where most of the clinical work actually happens.
+      </p>
+
+      <h4>Model drift and reproducibility</h4>
+      <p>
+        The provider's model can change beneath the system without notice, altering behaviour with no
+        code change. Briefings therefore record which model produced them and snapshot the data they
+        analysed, so a saved briefing stays interpretable. Any serious deployment needs a pinned,
+        versioned model and re-validation on change.
+      </p>
+    </section>
+
+    <!-- =========================================================== 12 -->
+    <section id="appendix">
+      <div class="sec-head">
+        <span class="sec-num">SECTION 12</span>
+        <h2 class="sec-title">Technical appendix</h2>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <caption>Current prototype implementation.</caption>
+          <thead>
+            <tr><th>Layer</th><th>Implementation</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Interface</td><td>React, with charting for longitudinal display; print stylesheet for the one-page summary</td></tr>
+            <tr><td>Service</td><td>Node.js / Express REST API</td></tr>
+            <tr><td>Storage</td><td>MySQL 8, prefixed tables so it can share a schema with other applications</td></tr>
+            <tr><td>Language model</td><td>Any OpenAI-compatible chat-completions endpoint; provider-agnostic by design</td></tr>
+            <tr><td>Resilience</td><td>Ordered model fallback chain with per-attempt timeout; deterministic local analysis if all providers fail</td></tr>
+            <tr><td>Interchange</td><td>Documented JSON import with per-row validation, replay-safe writes, and full batch revert</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Two implementation details with clinical consequences</h3>
+
+      <p>
+        <strong>Briefings snapshot their evidence.</strong> A saved briefing stores the data it
+        analysed, not a reference to it. Regenerating or re-importing a patient's data does not
+        retrospectively alter a briefing that has already been read and acted upon. This costs storage
+        and is the correct trade.
+      </p>
+
+      <p>
+        <strong>There is a deterministic fallback.</strong> If every model provider fails, the system
+        produces a briefing from a local statistical pass &mdash; trends across the window, Pearson
+        correlations between streams, highest-burden days, observer divergence, coverage gaps. It is
+        derived from the patient's actual data, labels itself as non-model output, and means a
+        provider outage never leaves a clinician with an empty screen mid-session.
+      </p>
+
+      <h3>Interoperability</h3>
+
+      <p>
+        The import format is bespoke JSON. For any real deployment, alignment with FHIR resources &mdash;
+        <code>Observation</code> for measurements, <code>QuestionnaireResponse</code> for
+        instruments &mdash; would be the appropriate direction, and would make integration with an existing
+        electronic record a configuration exercise rather than a project.
+      </p>
+    </section>
+
+    <footer class="colophon">
+      <p>
+        <strong>Mindbridge</strong> &mdash; clinical and research overview, v1.0, August 2026.
+        Prepared for clinicians, researchers and service leads evaluating whether this approach is
+        worth pursuing.
+      </p>
+      <p>
+        This document describes a research prototype. It is not a medical device, has not been
+        clinically validated, and makes no claim of clinical efficacy. The worked example in
+        &sect;5 is real system output analysing a synthetic patient record. No claim in this document
+        is supported by a citation; where established concepts are named &mdash; recall bias, ecological
+        momentary assessment, software as a medical device &mdash; the underlying literature should be
+        reviewed independently before any of it is relied upon.
+      </p>
+    </footer>
+
+  </main>
+</div>
